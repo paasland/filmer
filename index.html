@@ -1,0 +1,1184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Top 300 Movies — TMDB</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel-2: #1c2330;
+    --border: #2a3240;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #f5c518;
+    --accent-2: #4493f8;
+    --shadow: 0 6px 24px rgba(0,0,0,.45);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.4;
+  }
+  header {
+    background: linear-gradient(180deg, #161b22 0%, #0d1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 20px 24px;
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    letter-spacing: .5px;
+  }
+  h1 .badge {
+    color: var(--accent);
+    font-weight: 800;
+  }
+  .sub { color: var(--muted); font-size: .85rem; margin-top: 2px; }
+
+  .filters {
+    display: flex;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: .72rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+  select, input[type="text"], input[type="password"] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: .9rem;
+    min-width: 130px;
+    outline: none;
+  }
+  select:focus, input:focus { border-color: var(--accent-2); }
+  button {
+    background: var(--accent-2);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: .9rem;
+    cursor: pointer;
+    font-weight: 600;
+  }
+  button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+  button:hover { filter: brightness(1.1); }
+
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  .status { color: var(--muted); margin-bottom: 16px; font-size: .9rem; }
+  .status .count { color: var(--text); font-weight: 700; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 20px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .card:hover { transform: translateY(-4px); box-shadow: var(--shadow); }
+  .poster-wrap { position: relative; aspect-ratio: 2/3; background: var(--panel-2); display: block; text-decoration: none; cursor: pointer; }
+  a.poster-wrap::after {
+    content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity .15s ease;
+    background: radial-gradient(circle, rgba(68,147,248,.0) 60%, rgba(0,0,0,.45) 100%);
+  }
+  a.poster-wrap:hover::after { opacity: 1; }
+  .poster-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .no-poster {
+    display: flex; align-items: center; justify-content: center; height: 100%;
+    color: var(--muted); font-size: .8rem; text-align: center; padding: 12px;
+  }
+  .rank {
+    position: absolute; top: 8px; left: 8px;
+    background: rgba(0,0,0,.75); color: var(--accent);
+    font-weight: 800; font-size: .8rem;
+    padding: 3px 8px; border-radius: 6px;
+  }
+  .cert {
+    position: absolute; top: 8px; right: 8px;
+    background: rgba(0,0,0,.75); color: #fff;
+    font-weight: 700; font-size: .72rem;
+    padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.25);
+  }
+  .card-body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .title { font-weight: 700; font-size: .95rem; line-height: 1.25; }
+  .meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8rem; }
+  .score { color: var(--accent); font-weight: 700; }
+  .meta .lang { color: var(--accent-2); font-weight: 600; }
+  .genres { color: var(--muted); font-size: .74rem; margin-top: auto; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+  .stat { font-size: .74rem; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
+  .stat.oscar { background: rgba(245,197,24,.12); color: var(--accent); border: 1px solid rgba(245,197,24,.3); }
+  .stat.box { background: rgba(68,147,248,.12); color: var(--accent-2); border: 1px solid rgba(68,147,248,.3); }
+  .stat .dim { opacity: .7; font-weight: 400; }
+
+  /* Seen / watched state */
+  .card.seen { opacity: .5; }
+  .card.seen:hover { opacity: 1; }
+  .seen-badge {
+    position: absolute; bottom: 8px; left: 8px;
+    background: var(--accent-2); color: #fff;
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: .95rem; box-shadow: 0 2px 6px rgba(0,0,0,.5);
+  }
+  .netflix-badge {
+    position: absolute; bottom: 8px; right: 8px;
+    background: #E50914; color: #fff;
+    font-weight: 800; font-size: .68rem; letter-spacing: .4px;
+    padding: 3px 7px; border-radius: 5px;
+    box-shadow: 0 2px 6px rgba(0,0,0,.5);
+  }
+  .seen-toggle {
+    background: var(--panel-2); color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; font-size: .76rem; font-weight: 600;
+    cursor: pointer; width: 100%; margin-top: 6px;
+  }
+  .seen-toggle:hover { border-color: var(--accent-2); color: var(--text); filter: none; }
+  .card.seen .seen-toggle { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
+
+  /* API key gate */
+  .gate-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.8);
+    display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+  }
+  .gate {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px; max-width: 520px; width: 100%; box-shadow: var(--shadow);
+  }
+  .gate h2 { margin: 0 0 8px; }
+  .gate p { color: var(--muted); font-size: .9rem; }
+  .gate a { color: var(--accent-2); }
+  .gate .row { display: flex; gap: 10px; margin-top: 16px; }
+  .gate input { flex: 1; }
+  .gate .err { color: #f85149; font-size: .85rem; margin-top: 8px; min-height: 1em; }
+  .gate .type-toggle { margin-top: 12px; font-size: .8rem; color: var(--muted); }
+  .gate .type-toggle label { margin-right: 14px; cursor: pointer; }
+
+  /* Multi-select checkbox dropdown */
+  .multiselect { position: relative; }
+  .ms-toggle {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: .9rem;
+    min-width: 160px;
+    text-align: left;
+    cursor: pointer;
+    font-weight: 400;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    align-items: center;
+  }
+  .ms-toggle:hover { filter: none; border-color: var(--accent-2); }
+  .ms-toggle .caret { color: var(--muted); }
+  .ms-panel {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 30;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    min-width: 200px;
+    max-height: 320px;
+    overflow: auto;
+    padding: 8px;
+  }
+  .ms-panel.open { display: block; }
+  .ms-actions { display: flex; gap: 8px; padding: 2px 4px 8px; border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+  .ms-actions button { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; font-size: .78rem; }
+  .ms-actions button:hover { color: var(--text); border-color: var(--accent-2); }
+  .ms-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 6px; border-radius: 6px; cursor: pointer; font-size: .88rem;
+    white-space: nowrap;
+  }
+  .ms-item:hover { background: var(--panel-2); }
+  .ms-item input { accent-color: var(--accent-2); width: 16px; height: 16px; cursor: pointer; }
+
+  /* Dual-handle year range slider */
+  .year-field { min-width: 240px; }
+  .year-field label { display: flex; justify-content: space-between; gap: 10px; }
+  .year-field .year-value { color: var(--text); font-weight: 700; letter-spacing: .3px; text-transform: none; }
+  .range-slider { position: relative; height: 34px; width: 100%; min-width: 220px; }
+  .range-track, .range-fill { position: absolute; top: 15px; height: 4px; border-radius: 2px; pointer-events: none; }
+  .range-track { left: 0; right: 0; background: var(--border); }
+  .range-fill { background: var(--accent-2); }
+  .range-slider input[type="range"] {
+    position: absolute; top: 0; left: 0; width: 100%; height: 34px;
+    margin: 0; background: none; pointer-events: none;
+    -webkit-appearance: none; appearance: none;
+  }
+  .range-slider input[type="range"]:focus { outline: none; }
+  .range-slider input[type="range"]::-webkit-slider-runnable-track { background: none; border: none; }
+  .range-slider input[type="range"]::-moz-range-track { background: none; border: none; }
+  .range-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; pointer-events: all;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent-2); border: 2px solid #fff; cursor: grab;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+  .range-slider input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+  .range-slider input[type="range"]::-moz-range-thumb {
+    pointer-events: all; width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent-2); border: 2px solid #fff; cursor: grab;
+    box-shadow: 0 1px 4px rgba(0,0,0,.5);
+  }
+
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .spinner {
+    width: 16px; height: 16px; border: 2px solid var(--border);
+    border-top-color: var(--accent-2); border-radius: 50%;
+    display: inline-block; animation: spin .8s linear infinite; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .reset-key { font-size: .78rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div>
+      <h1>Top <span class="badge" id="countBadge">300</span> Movies</h1>
+      <div class="sub">Highest-rated films + box-office &amp; Oscar record-holders · data from TMDB &amp; OMDb</div>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="ghost reset-key" id="omdbKeyBtn" title="Set OMDb key to load Academy Award data">🏆 Oscar data</button>
+      <button class="ghost reset-key" id="resetKey" title="Change API key">Change API key</button>
+    </div>
+  </div>
+
+  <div class="filters">
+    <div class="field">
+      <label>Genre</label>
+      <div class="multiselect" id="msGenre">
+        <button type="button" class="ms-toggle"><span class="ms-summary">All genres</span><span class="caret">▾</span></button>
+        <div class="ms-panel">
+          <div class="ms-actions">
+            <button type="button" data-act="all">Select all</button>
+            <button type="button" data-act="none">Clear all</button>
+          </div>
+          <div class="ms-list"></div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label>Language</label>
+      <div class="multiselect" id="msLanguage">
+        <button type="button" class="ms-toggle"><span class="ms-summary">All languages</span><span class="caret">▾</span></button>
+        <div class="ms-panel">
+          <div class="ms-actions">
+            <button type="button" data-act="all">Select all</button>
+            <button type="button" data-act="none">Clear all</button>
+          </div>
+          <div class="ms-list"></div>
+        </div>
+      </div>
+    </div>
+    <div class="field year-field">
+      <label>Release year <span class="year-value" id="yearLabel">All</span></label>
+      <div class="range-slider" id="yearRange">
+        <div class="range-track"></div>
+        <div class="range-fill" id="yearFill"></div>
+        <input type="range" id="yearMin" aria-label="Earliest year" />
+        <input type="range" id="yearMax" aria-label="Latest year" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Age rating (US)</label>
+      <div class="multiselect" id="msCert">
+        <button type="button" class="ms-toggle"><span class="ms-summary">All ratings</span><span class="caret">▾</span></button>
+        <div class="ms-panel">
+          <div class="ms-actions">
+            <button type="button" data-act="all">Select all</button>
+            <button type="button" data-act="none">Clear all</button>
+          </div>
+          <div class="ms-list"></div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label for="fSeen">Watched</label>
+      <select id="fSeen">
+        <option value="all">Show all</option>
+        <option value="unseen">Not seen yet</option>
+        <option value="seen">Seen before</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fRegion">Streaming region</label>
+      <select id="fRegion"><option value="NO">Norway</option></select>
+    </div>
+    <div class="field">
+      <label for="fStreaming">Netflix</label>
+      <select id="fStreaming">
+        <option value="all">Show all</option>
+        <option value="netflix">Netflix only</option>
+        <option value="hide">Hide Netflix only</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fMinVotes">Min. votes</label>
+      <select id="fMinVotes">
+        <option value="0">Any</option>
+        <option value="100">100+</option>
+        <option value="500">500+</option>
+        <option value="1000">1,000+</option>
+        <option value="2500">2,500+</option>
+        <option value="5000">5,000+</option>
+        <option value="10000">10,000+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fAwards">Awards / box office</label>
+      <select id="fAwards">
+        <option value="all">Show all</option>
+        <option value="oscarWinners">Oscar winners</option>
+        <option value="oscarNominees">Oscar nominees</option>
+        <option value="billion">Box office $1B+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fSort">Sort by</label>
+      <select id="fSort">
+        <option value="rating">TMDB rating</option>
+        <option value="oscarWins">Most Oscar wins</option>
+        <option value="oscarNoms">Most Oscar nominations</option>
+        <option value="revenue">Highest box office</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="ghost" id="clearBtn">Clear filters</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="status" id="status">Loading…</div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none;">No movies match the current filters.</div>
+</main>
+
+<!-- API key gate -->
+<div class="gate-overlay" id="gate" style="display:none;">
+  <div class="gate">
+    <h2>Enter your TMDB API key</h2>
+    <p>
+      This app loads data directly from
+      <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">The Movie Database</a>.
+      You need a free key. Get one at
+      <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">themoviedb.org/settings/api</a>.
+      It is stored only in your browser (localStorage) and never sent anywhere except TMDB.
+    </p>
+    <div class="type-toggle">
+      <label><input type="radio" name="keyType" value="v3" checked /> API Key (v3)</label>
+      <label><input type="radio" name="keyType" value="v4" /> Read Access Token (v4)</label>
+    </div>
+    <div class="row">
+      <input type="password" id="keyInput" placeholder="Paste your key / token here" />
+      <button id="saveKey">Save &amp; load</button>
+    </div>
+    <div class="err" id="keyErr"></div>
+  </div>
+</div>
+
+<!-- OMDb key modal (optional, for Academy Award data) -->
+<div class="gate-overlay" id="omdbGate" style="display:none;">
+  <div class="gate">
+    <h2>OMDb key — Academy Award data</h2>
+    <p>
+      TMDB has no Oscar data, so Academy Award wins &amp; nominations come from
+      <a href="https://www.omdbapi.com/" target="_blank" rel="noopener">OMDb</a>.
+      Get a free key at
+      <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com/apikey.aspx</a>
+      (the free tier allows 1,000 lookups/day; this app uses ~300). Stored only in your browser.
+    </p>
+    <p style="font-size:.82rem;">
+      Note: Oscar <em>wins</em> are exact. Oscar <em>nominations</em> are exact only for films that
+      didn't win; for winners OMDb doesn't expose the count, so the number shown is a floor (= wins),
+      except for record-holders which are hand-corrected.
+    </p>
+    <div class="row">
+      <input type="password" id="omdbInput" placeholder="Paste your OMDb API key" />
+      <button id="saveOmdb">Save &amp; load</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="ghost" id="omdbClear">Remove key</button>
+      <button class="ghost" id="omdbClose">Close</button>
+    </div>
+    <div class="err" id="omdbErr"></div>
+  </div>
+</div>
+
+<script>
+const TMDB = "https://api.themoviedb.org/3";
+const IMG = "https://image.tmdb.org/t/p/w342";
+const TARGET = 300;            // movies to load
+const PAGES = TARGET / 20;     // 20 per page
+const CONCURRENCY = 12;        // parallel detail lookups
+const OMDB = "https://www.omdbapi.com/";
+let region = "NO";             // country used for streaming availability (user-selectable)
+
+// Films force-included so the list always contains the top 3 in each category.
+// Oscar record-holders (wins=11: Ben-Hur, Titanic, LOTR-ROTK; noms=14: All About Eve, Titanic, La La Land).
+// Box-office top 3 are added dynamically via discover (revenue.desc).
+const MUST_INCLUDE = [665, 597, 122, 705, 313369];
+
+// Hand-verified Academy Award counts for record-holders (OMDb can't give exact noms for winners).
+const OSCAR_OVERRIDES = {
+  665:    { wins: 11, noms: 12 },  // Ben-Hur (1959)
+  597:    { wins: 11, noms: 14 },  // Titanic (1997)
+  122:    { wins: 11, noms: 11 },  // LOTR: The Return of the King (2003)
+  705:    { wins: 6,  noms: 14 },  // All About Eve (1950)
+  313369: { wins: 6,  noms: 14 },  // La La Land (2016)
+};
+
+const LS_KEY = "tmdb_key";
+const LS_TYPE = "tmdb_key_type";
+const LS_SEEN = "seen_movies";
+const LS_FILTERS = "filter_prefs";
+const LS_OMDB = "omdb_key";
+
+// Saved filter preferences (restored on load, updated on every user change).
+let savedFilters = JSON.parse(localStorage.getItem(LS_FILTERS) || "{}");
+
+let allMovies = [];
+let genreMap = {};   // id -> name
+
+// Set of movie ids the user has marked as seen (persisted in localStorage).
+let seen = new Set(JSON.parse(localStorage.getItem(LS_SEEN) || "[]"));
+function saveSeen() { localStorage.setItem(LS_SEEN, JSON.stringify([...seen])); }
+function toggleSeen(id) {
+  if (seen.has(id)) seen.delete(id); else seen.add(id);
+  saveSeen();
+  render();
+}
+
+// ---------- API key handling ----------
+function getKey()  { return localStorage.getItem(LS_KEY); }
+function getType() { return localStorage.getItem(LS_TYPE) || "v3"; }
+
+// Build fetch options + url given an endpoint path and params.
+function apiFetch(path, params = {}) {
+  const url = new URL(TMDB + path);
+  const opts = { headers: {} };
+  if (getType() === "v4") {
+    opts.headers["Authorization"] = "Bearer " + getKey();
+  } else {
+    params.api_key = getKey();
+  }
+  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  return fetch(url, opts).then(r => {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  });
+}
+
+// ---------- Gate UI ----------
+const gate = document.getElementById("gate");
+const keyInput = document.getElementById("keyInput");
+const keyErr = document.getElementById("keyErr");
+
+function showGate(msg) {
+  gate.style.display = "flex";
+  keyErr.textContent = msg || "";
+  keyInput.value = "";
+  keyInput.focus();
+}
+function hideGate() { gate.style.display = "none"; }
+
+document.getElementById("saveKey").addEventListener("click", saveKey);
+keyInput.addEventListener("keydown", e => { if (e.key === "Enter") saveKey(); });
+document.getElementById("resetKey").addEventListener("click", () => showGate(""));
+
+async function saveKey() {
+  const key = keyInput.value.trim();
+  const type = document.querySelector('input[name="keyType"]:checked').value;
+  if (!key) { keyErr.textContent = "Please paste a key."; return; }
+  keyErr.innerHTML = '<span class="spinner"></span> Verifying…';
+  // temporarily store to test
+  localStorage.setItem(LS_KEY, key);
+  localStorage.setItem(LS_TYPE, type);
+  try {
+    await apiFetch("/configuration");      // cheap auth-check endpoint
+    hideGate();
+    init();
+  } catch (e) {
+    localStorage.removeItem(LS_KEY);
+    keyErr.textContent = "That key didn't work (" + e.message + "). Check the key and type.";
+  }
+}
+
+// ---------- OMDb key UI (Academy Award data) ----------
+const omdbGate = document.getElementById("omdbGate");
+const omdbInput = document.getElementById("omdbInput");
+const omdbErr = document.getElementById("omdbErr");
+const omdbKeyBtn = document.getElementById("omdbKeyBtn");
+function getOmdbKey() { return localStorage.getItem(LS_OMDB) || ""; }
+function refreshOmdbBtn() { omdbKeyBtn.textContent = getOmdbKey() ? "🏆 Oscar data ✓" : "🏆 Oscar data"; }
+
+omdbKeyBtn.addEventListener("click", () => {
+  omdbErr.textContent = ""; omdbInput.value = ""; omdbGate.style.display = "flex"; omdbInput.focus();
+});
+document.getElementById("omdbClose").addEventListener("click", () => { omdbGate.style.display = "none"; });
+document.getElementById("omdbClear").addEventListener("click", () => {
+  localStorage.removeItem(LS_OMDB); refreshOmdbBtn(); omdbGate.style.display = "none";
+});
+omdbInput.addEventListener("keydown", e => { if (e.key === "Enter") saveOmdb(); });
+document.getElementById("saveOmdb").addEventListener("click", saveOmdb);
+
+async function saveOmdb() {
+  const key = omdbInput.value.trim();
+  if (!key) { omdbErr.textContent = "Please paste a key."; return; }
+  omdbErr.innerHTML = '<span class="spinner"></span> Verifying…';
+  try {
+    const r = await fetch(`${OMDB}?apikey=${encodeURIComponent(key)}&i=tt0111161`); // Shawshank
+    const d = await r.json();
+    if (d.Response === "False") throw new Error(d.Error || "rejected");
+    localStorage.setItem(LS_OMDB, key);
+    refreshOmdbBtn();
+    omdbGate.style.display = "none";
+    if (allMovies.length) {   // already loaded → fetch Oscars now
+      elStatus.innerHTML = `<span class="spinner"></span> loading Academy Award data…`;
+      await loadOscars(allMovies, () => {});
+      applyOscarOverrides();
+      render();
+    }
+  } catch (e) {
+    omdbErr.textContent = "That key didn't work (" + e.message + ").";
+  }
+}
+
+// Parse OMDb's free-text "Awards" field into Oscar { wins, noms }.
+function parseAwards(s) {
+  const out = { wins: 0, noms: 0 };
+  if (!s || s === "N/A") return out;
+  const won = s.match(/Won\s+(\d+)\s+Oscar/i);
+  if (won) out.wins = parseInt(won[1], 10);
+  const nom = s.match(/Nominated for\s+(\d+)\s+Oscar/i);
+  if (nom) out.noms = parseInt(nom[1], 10);
+  if (out.wins && !out.noms) out.noms = out.wins;   // winners: at least as many noms as wins
+  return out;
+}
+
+// Fetch Oscar data from OMDb (keyed by imdb_id), concurrency-limited.
+async function loadOscars(movies, onProgress) {
+  const key = getOmdbKey();
+  if (!key) return;
+  let i = 0, done = 0;
+  const targets = movies.filter(m => m.imdb_id);
+  async function worker() {
+    while (i < targets.length) {
+      const m = targets[i++];
+      try {
+        const r = await fetch(`${OMDB}?apikey=${encodeURIComponent(key)}&i=${m.imdb_id}`);
+        const d = await r.json();
+        if (d && d.Response !== "False") {
+          const a = parseAwards(d.Awards);
+          m.oscarWins = a.wins; m.oscarNoms = a.noms;
+        }
+      } catch { /* leave undefined */ }
+      done++;
+      if (onProgress && (done % 25 === 0 || done === targets.length)) onProgress(done, targets.length);
+    }
+  }
+  await Promise.all(Array.from({ length: 6 }, worker));   // OMDb: gentler concurrency
+}
+
+// Authoritative Oscar counts for record-holders (overrides OMDb's approximations).
+function applyOscarOverrides() {
+  allMovies.forEach(m => {
+    const o = OSCAR_OVERRIDES[m.id];
+    if (o) { m.oscarWins = o.wins; m.oscarNoms = o.noms; }
+  });
+}
+
+// ---------- Data loading ----------
+async function loadGenres() {
+  const data = await apiFetch("/genre/movie/list", { language: "en-US" });
+  genreMap = {};
+  data.genres.forEach(g => { genreMap[g.id] = g.name; });
+}
+
+async function loadTopMovies() {
+  const reqs = [];
+  for (let p = 1; p <= PAGES; p++) {
+    reqs.push(apiFetch("/movie/top_rated", { language: "en-US", page: p }));
+  }
+  const pages = await Promise.all(reqs);
+  const movies = [];
+  pages.forEach(pg => movies.push(...pg.results));
+  const top = movies.slice(0, TARGET);
+  top.forEach((m, i) => { m.ratingRank = i + 1; });   // canonical top-rated position
+  return top;
+}
+
+// Force-include the top 3 box-office films + Oscar record-holders not already in the list,
+// so the list always contains the top 3 in every category.
+async function augmentList() {
+  let boxIds = [];
+  try {
+    const disc = await apiFetch("/discover/movie", { sort_by: "revenue.desc", page: 1, language: "en-US" });
+    boxIds = (disc.results || []).slice(0, 3).map(m => m.id);
+  } catch { /* ignore */ }
+  const have = new Set(allMovies.map(m => m.id));
+  const toAdd = [...new Set([...MUST_INCLUDE, ...boxIds])].filter(id => !have.has(id));
+  const fetched = await Promise.all(
+    toAdd.map(id => apiFetch(`/movie/${id}`, { language: "en-US" }).catch(() => null))
+  );
+  fetched.filter(Boolean).forEach(d => {
+    allMovies.push({
+      id: d.id, title: d.title, poster_path: d.poster_path,
+      vote_average: d.vote_average, vote_count: d.vote_count,
+      release_date: d.release_date, original_language: d.original_language,
+      genre_ids: (d.genres || []).map(g => g.id),
+      augmented: true,         // not part of the rating-ranked top 300
+    });
+  });
+}
+
+// Fetch per-movie details (US certification + IMDB id) with a concurrency-limited pool.
+async function loadDetails(movies, onProgress) {
+  let i = 0, done = 0;
+  async function worker() {
+    while (i < movies.length) {
+      const movie = movies[i++];
+      try {
+        const data = await apiFetch(`/movie/${movie.id}`, { append_to_response: "release_dates,watch/providers", language: "en-US" });
+        movie.certification = pickCert(data.release_dates && data.release_dates.results);
+        movie.imdb_id = data.imdb_id || "";
+        movie.revenue = data.revenue || 0;
+        movie.providersByRegion = (data["watch/providers"] && data["watch/providers"].results) || {};
+        movie.netflixOnly = isNetflixOnly(movie.providersByRegion, region);
+      } catch {
+        movie.certification = "";
+        movie.imdb_id = "";
+        movie.revenue = 0;
+        movie.providersByRegion = {};
+        movie.netflixOnly = false;
+      }
+      done++;
+      if (onProgress) onProgress(done, movies.length);
+    }
+  }
+  const pool = Array.from({ length: CONCURRENCY }, worker);
+  await Promise.all(pool);
+}
+
+function pickCert(results) {
+  if (!results) return "";
+  const us = results.find(r => r.iso_3166_1 === "US");
+  const fromCountry = c => {
+    if (!c) return "";
+    const rd = c.release_dates.find(d => d.certification && d.certification.trim());
+    return rd ? rd.certification.trim() : "";
+  };
+  return fromCountry(us);   // US only for a consistent rating scale
+}
+
+// True when the only subscription-streaming option in `rgn` is Netflix.
+function isNetflixOnly(providersByRegion, rgn) {
+  const block = providersByRegion && providersByRegion[rgn];
+  const flat = block && block.flatrate;
+  if (!flat || !flat.length) return false;
+  return flat.every(p => /netflix/i.test(p.provider_name));
+}
+
+// Recompute each movie's Netflix-only flag for the current region, then re-render.
+function recomputeNetflix() {
+  allMovies.forEach(m => { m.netflixOnly = isNetflixOnly(m.providersByRegion, region); });
+}
+
+// ---------- Filters & rendering ----------
+const elGrid = document.getElementById("grid");
+const elStatus = document.getElementById("status");
+const elEmpty = document.getElementById("empty");
+// Dual-handle year range slider.
+const yearMin = document.getElementById("yearMin");
+const yearMax = document.getElementById("yearMax");
+const yearFill = document.getElementById("yearFill");
+const yearLabel = document.getElementById("yearLabel");
+let YEAR_LO, YEAR_HI;   // data bounds
+
+function setupYearRange(lo, hi) {
+  YEAR_LO = lo; YEAR_HI = hi;
+  [yearMin, yearMax].forEach(s => { s.min = lo; s.max = hi; s.step = 1; });
+  yearMin.value = lo; yearMax.value = hi;
+  updateYearUI();
+}
+
+function updateYearUI() {
+  const lo = parseInt(yearMin.value, 10), hi = parseInt(yearMax.value, 10);
+  const span = (YEAR_HI - YEAR_LO) || 1;
+  const leftPct = ((lo - YEAR_LO) / span) * 100;
+  const rightPct = ((hi - YEAR_LO) / span) * 100;
+  yearFill.style.left = leftPct + "%";
+  yearFill.style.width = (rightPct - leftPct) + "%";
+  yearLabel.textContent = (lo === YEAR_LO && hi === YEAR_HI) ? "All years" : `${lo} – ${hi}`;
+  // Keep the upper thumb grabbable when both handles bunch up at an end.
+  const mid = (YEAR_LO + YEAR_HI) / 2;
+  yearMin.style.zIndex = lo > mid ? 5 : 4;
+  yearMax.style.zIndex = lo > mid ? 4 : 5;
+}
+
+// Live: clamp so handles can meet but not cross, redraw, re-filter on each move.
+yearMin.addEventListener("input", () => {
+  if (parseInt(yearMin.value, 10) > parseInt(yearMax.value, 10)) yearMin.value = yearMax.value;
+  updateYearUI(); render();
+});
+yearMax.addEventListener("input", () => {
+  if (parseInt(yearMax.value, 10) < parseInt(yearMin.value, 10)) yearMax.value = yearMin.value;
+  updateYearUI(); render();
+});
+// Persist only when dragging ends (avoids hammering localStorage during a drag).
+[yearMin, yearMax].forEach(s => s.addEventListener("change", saveFilters));
+
+// Reusable checkbox-dropdown. All options start checked; unchecking excludes.
+class MultiSelect {
+  constructor(rootId, { label, onChange }) {
+    this.root = document.getElementById(rootId);
+    this.label = label;
+    this.onChange = onChange;
+    this.toggle = this.root.querySelector(".ms-toggle");
+    this.panel = this.root.querySelector(".ms-panel");
+    this.list = this.root.querySelector(".ms-list");
+    this.summary = this.root.querySelector(".ms-summary");
+    this.options = [];          // [{value, text}]
+    this.checked = new Set();   // set of String(value)
+
+    this.toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = this.panel.classList.toggle("open");
+      if (open) document.querySelectorAll(".ms-panel.open").forEach(p => { if (p !== this.panel) p.classList.remove("open"); });
+    });
+    this.root.querySelectorAll(".ms-actions button").forEach(b =>
+      b.addEventListener("click", () => this.setAll(b.dataset.act === "all")));
+    document.addEventListener("click", (e) => { if (!this.root.contains(e.target)) this.panel.classList.remove("open"); });
+  }
+
+  setOptions(opts) {
+    this.options = opts;
+    this.checked = new Set(opts.map(o => String(o.value)));
+    this.list.innerHTML = "";
+    opts.forEach(o => {
+      const row = document.createElement("label");
+      row.className = "ms-item";
+      row.innerHTML = `<input type="checkbox" checked /><span></span>`;
+      row.querySelector("span").textContent = o.text;
+      row.querySelector("input").addEventListener("change", (e) => {
+        if (e.target.checked) this.checked.add(String(o.value));
+        else this.checked.delete(String(o.value));
+        this.updateSummary();
+        this.onChange();
+      });
+      this.list.appendChild(row);
+    });
+    this.updateSummary();
+  }
+
+  setAll(on) {
+    this.list.querySelectorAll("input").forEach(i => { i.checked = on; });
+    this.checked = on ? new Set(this.options.map(o => String(o.value))) : new Set();
+    this.updateSummary();
+    this.onChange();
+  }
+
+  // Restore saved state by unchecking the given values. Does NOT fire onChange.
+  setExcluded(values) {
+    const ex = new Set((values || []).map(String));
+    this.list.querySelectorAll("input").forEach((input, idx) => {
+      const val = String(this.options[idx].value);
+      const isChecked = !ex.has(val);
+      input.checked = isChecked;
+      if (isChecked) this.checked.add(val); else this.checked.delete(val);
+    });
+    this.updateSummary();
+  }
+
+  updateSummary() {
+    const total = this.options.length, sel = this.checked.size;
+    let txt;
+    if (total === 0) txt = "—";
+    else if (sel === total) txt = "All " + this.label;
+    else if (sel === 0) txt = "None selected";
+    else if (total - sel <= 2) {
+      const excluded = this.options.filter(o => !this.checked.has(String(o.value))).map(o => o.text);
+      txt = "All except " + excluded.join(", ");
+    } else txt = sel + " of " + total + " selected";
+    this.summary.textContent = txt;
+  }
+
+  has(value) { return this.checked.has(String(value)); }
+}
+
+// Re-render and persist the current filter selections.
+function applyFilters() { render(); saveFilters(); }
+
+const msGenre = new MultiSelect("msGenre", { label: "genres", onChange: applyFilters });
+const msLanguage = new MultiSelect("msLanguage", { label: "languages", onChange: applyFilters });
+const msCert = new MultiSelect("msCert", { label: "ratings", onChange: applyFilters });
+
+// Human-readable language name from an ISO 639-1 code, with graceful fallback.
+const langDisplay = (() => {
+  try { return new Intl.DisplayNames(["en"], { type: "language" }); } catch { return null; }
+})();
+function langName(code) {
+  if (!code) return "Unknown";
+  if (langDisplay) { try { return langDisplay.of(code) || code.toUpperCase(); } catch { /* fall through */ } }
+  return code.toUpperCase();
+}
+
+const fSeen = document.getElementById("fSeen");
+const fStreaming = document.getElementById("fStreaming");
+const fRegion = document.getElementById("fRegion");
+const fSort = document.getElementById("fSort");
+const fAwards = document.getElementById("fAwards");
+const fMinVotes = document.getElementById("fMinVotes");
+
+fSeen.addEventListener("change", applyFilters);
+fStreaming.addEventListener("change", applyFilters);
+fSort.addEventListener("change", applyFilters);
+fAwards.addEventListener("change", applyFilters);
+fMinVotes.addEventListener("change", applyFilters);
+// Switching region recomputes Netflix flags from already-loaded data (no re-fetch).
+fRegion.addEventListener("change", () => {
+  region = fRegion.value;
+  recomputeNetflix();
+  applyFilters();
+});
+document.getElementById("clearBtn").addEventListener("click", () => {
+  msGenre.setAll(true);
+  msLanguage.setAll(true);
+  msCert.setAll(true);
+  if (YEAR_LO !== undefined) { yearMin.value = YEAR_LO; yearMax.value = YEAR_HI; updateYearUI(); }
+  fSeen.value = "all";
+  fStreaming.value = "all";   // region is a setting, kept on clear
+  fSort.value = "rating";
+  fAwards.value = "all";
+  fMinVotes.value = "0";
+  applyFilters();
+});
+
+// Build the region dropdown from every country present in the loaded provider data.
+function buildRegionOptions() {
+  const codes = new Set();
+  allMovies.forEach(m => Object.keys(m.providersByRegion || {}).forEach(c => codes.add(c)));
+  const names = (() => { try { return new Intl.DisplayNames(["en"], { type: "region" }); } catch { return null; } })();
+  const regionName = c => { try { return (names && names.of(c)) || c; } catch { return c; } };
+  const opts = [...codes].map(c => ({ code: c, name: regionName(c) })).sort((a, b) => a.name.localeCompare(b.name));
+  fRegion.innerHTML = "";
+  opts.forEach(o => fRegion.add(new Option(`${o.name} (${o.code})`, o.code)));
+  // Keep saved/default region if available, else fall back to the first option.
+  if (![...fRegion.options].some(o => o.value === region)) region = opts.length ? opts[0].code : region;
+  fRegion.value = region;
+}
+
+// Persist filter choices. Stores *excluded* items so genres/ratings added by
+// TMDB later still default to visible. Keeps a category untouched until its
+// options have loaded, so an early save doesn't wipe a not-yet-loaded category.
+function saveFilters() {
+  if (msGenre.options.length)
+    savedFilters.genreExcluded = msGenre.options.filter(o => !msGenre.has(o.value)).map(o => String(o.value));
+  if (msLanguage.options.length)
+    savedFilters.languageExcluded = msLanguage.options.filter(o => !msLanguage.has(o.value)).map(o => String(o.value));
+  if (msCert.options.length)
+    savedFilters.certExcluded = msCert.options.filter(o => !msCert.has(o.value)).map(o => String(o.value));
+  if (YEAR_LO !== undefined) { savedFilters.yearFrom = yearMin.value; savedFilters.yearTo = yearMax.value; }
+  savedFilters.seen = fSeen.value;
+  savedFilters.streaming = fStreaming.value;
+  savedFilters.region = region;
+  savedFilters.sort = fSort.value;
+  savedFilters.awards = fAwards.value;
+  savedFilters.minVotes = fMinVotes.value;
+  localStorage.setItem(LS_FILTERS, JSON.stringify(savedFilters));
+}
+
+// Restore the year range + watched filter from saved prefs (clamped to data bounds).
+function restoreYearSeen() {
+  const clamp = v => Math.min(YEAR_HI, Math.max(YEAR_LO, parseInt(v, 10)));
+  if (savedFilters.yearFrom != null && !isNaN(parseInt(savedFilters.yearFrom, 10)))
+    yearMin.value = clamp(savedFilters.yearFrom);
+  if (savedFilters.yearTo != null && !isNaN(parseInt(savedFilters.yearTo, 10)))
+    yearMax.value = clamp(savedFilters.yearTo);
+  if (parseInt(yearMin.value, 10) > parseInt(yearMax.value, 10)) yearMin.value = yearMax.value;
+  updateYearUI();
+  const hasOpt = (sel, v) => [...sel.options].some(o => o.value === v);
+  if (savedFilters.seen && hasOpt(fSeen, savedFilters.seen)) fSeen.value = savedFilters.seen;
+  if (savedFilters.streaming && hasOpt(fStreaming, savedFilters.streaming)) fStreaming.value = savedFilters.streaming;
+  if (savedFilters.sort && hasOpt(fSort, savedFilters.sort)) fSort.value = savedFilters.sort;
+  if (savedFilters.awards && hasOpt(fAwards, savedFilters.awards)) fAwards.value = savedFilters.awards;
+  if (savedFilters.minVotes && hasOpt(fMinVotes, savedFilters.minVotes)) fMinVotes.value = savedFilters.minVotes;
+}
+
+// Mark/unmark a movie as seen (event delegation on the grid).
+elGrid.addEventListener("click", (e) => {
+  const btn = e.target.closest(".seen-toggle");
+  if (btn) toggleSeen(parseInt(btn.dataset.id, 10));
+});
+
+function year(m) {
+  return m.release_date ? parseInt(m.release_date.slice(0, 4), 10) : null;
+}
+
+function buildFilterOptions() {
+  // Genres present in the data
+  const usedGenres = new Set();
+  allMovies.forEach(m => (m.genre_ids || []).forEach(id => usedGenres.add(id)));
+  const genreOpts = [...usedGenres]
+    .map(id => ({ value: id, text: genreMap[id] || ("#" + id) }))
+    .sort((a, b) => a.text.localeCompare(b.text));
+  msGenre.setOptions(genreOpts);
+
+  // Languages present in the data (original_language codes)
+  const usedLangs = new Set(allMovies.map(m => m.original_language).filter(Boolean));
+  const langOpts = [...usedLangs]
+    .map(code => ({ value: code, text: langName(code) }))
+    .sort((a, b) => a.text.localeCompare(b.text));
+  msLanguage.setOptions(langOpts);
+
+  // Year range bounds from the data
+  const years = allMovies.map(year).filter(Boolean);
+  const lo = years.length ? Math.min(...years) : 1900;
+  const hi = years.length ? Math.max(...years) : 2025;
+  setupYearRange(lo, hi);
+}
+
+function buildCertOptions() {
+  const certs = [...new Set(allMovies.map(m => m.certification).filter(Boolean))];
+  // Sort by a sensible order, unknown ones appended alphabetically
+  const order = ["G", "PG", "PG-13", "R", "NC-17", "NR"];
+  certs.sort((a, b) => {
+    const ia = order.indexOf(a), ib = order.indexOf(b);
+    if (ia !== -1 && ib !== -1) return ia - ib;
+    if (ia !== -1) return -1;
+    if (ib !== -1) return 1;
+    return a.localeCompare(b);
+  });
+  const certOpts = certs.map(c => ({ value: c, text: c }));
+  // Add an explicit "Unrated/Unknown" bucket if any movie lacks a cert
+  if (allMovies.some(m => !m.certification)) {
+    certOpts.push({ value: "__none__", text: "No rating" });
+  }
+  msCert.setOptions(certOpts);
+}
+
+function render() {
+  const yFrom = YEAR_LO !== undefined ? parseInt(yearMin.value, 10) : null;
+  const yTo = YEAR_LO !== undefined ? parseInt(yearMax.value, 10) : null;
+  // Only constrain by year when the range is actually narrowed from the full span.
+  const yearNarrowed = yFrom !== null && !(yFrom === YEAR_LO && yTo === YEAR_HI);
+  const minVotes = parseInt(fMinVotes.value, 10) || 0;
+
+  const filtered = allMovies.filter((m) => {
+    // Minimum TMDB vote count
+    if (minVotes && (m.vote_count || 0) < minVotes) return false;
+    // Genre: inclusion — show a movie if at least one of its genres is checked.
+    if (msGenre.options.length) {
+      const ids = m.genre_ids || [];
+      if (ids.length && !ids.some(id => msGenre.has(id))) return false;
+    }
+    // Language: show only if the movie's original language is checked.
+    if (msLanguage.options.length) {
+      if (!msLanguage.has(m.original_language || "")) return false;
+    }
+    // Year range (only when narrowed; keeps undated films visible at full span)
+    if (yearNarrowed) {
+      const y = year(m);
+      if (y === null || y < yFrom || y > yTo) return false;
+    }
+    // Age rating: show only if the movie's cert (or "No rating") is checked.
+    if (msCert.options.length) {
+      const key = m.certification || "__none__";
+      if (!msCert.has(key)) return false;
+    }
+    // Watched status
+    const isSeen = seen.has(m.id);
+    if (fSeen.value === "seen" && !isSeen) return false;
+    if (fSeen.value === "unseen" && isSeen) return false;
+    // Netflix-only
+    if (fStreaming.value === "netflix" && !m.netflixOnly) return false;
+    if (fStreaming.value === "hide" && m.netflixOnly) return false;
+    // Awards / box office
+    if (fAwards.value === "oscarWinners" && !(m.oscarWins > 0)) return false;
+    if (fAwards.value === "oscarNominees" && !(m.oscarNoms > 0)) return false;
+    if (fAwards.value === "billion" && !(m.revenue >= 1e9)) return false;
+    return true;
+  });
+
+  sortMovies(filtered);
+
+  elGrid.innerHTML = "";
+  if (!filtered.length) {
+    elEmpty.style.display = "block";
+  } else {
+    elEmpty.style.display = "none";
+    const frag = document.createDocumentFragment();
+    filtered.forEach(m => frag.appendChild(card(m)));
+    elGrid.appendChild(frag);
+  }
+  elStatus.innerHTML = `Showing <span class="count">${filtered.length}</span> of ${allMovies.length} movies`;
+}
+
+// Sort the given array in place by the active sort key.
+function sortMovies(arr) {
+  const cmp = {
+    rating:    (a, b) => (a.ratingRank || 9999) - (b.ratingRank || 9999) || (b.vote_average || 0) - (a.vote_average || 0),
+    oscarWins: (a, b) => (b.oscarWins || 0) - (a.oscarWins || 0) || (b.oscarNoms || 0) - (a.oscarNoms || 0) || (a.ratingRank || 9999) - (b.ratingRank || 9999),
+    oscarNoms: (a, b) => (b.oscarNoms || 0) - (a.oscarNoms || 0) || (b.oscarWins || 0) - (a.oscarWins || 0) || (a.ratingRank || 9999) - (b.ratingRank || 9999),
+    revenue:   (a, b) => (b.revenue || 0) - (a.revenue || 0) || (a.ratingRank || 9999) - (b.ratingRank || 9999),
+  }[fSort.value] || (() => 0);
+  return arr.sort(cmp);
+}
+
+// Format a revenue figure as compact currency ($2.92B / $187M).
+function fmtMoney(n) {
+  if (!n || n <= 0) return "";
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + Math.round(n / 1e6) + "M";
+  return "$" + n.toLocaleString();
+}
+
+function card(m) {
+  const rank = m.ratingRank;
+  const isSeen = seen.has(m.id);
+  const div = document.createElement("div");
+  div.className = "card" + (isSeen ? " seen" : "");
+  const y = year(m) || "—";
+  const score = m.vote_average ? m.vote_average.toFixed(1) : "—";
+  const votes = (m.vote_count || 0).toLocaleString();
+  const lang = (m.original_language && m.original_language !== "en")
+    ? `<span>·</span><span class="lang" title="Original language">${escapeHtml(langName(m.original_language))}</span>` : "";
+  const genres = (m.genre_ids || []).map(id => genreMap[id]).filter(Boolean).join(", ");
+  const poster = m.poster_path
+    ? `<img loading="lazy" src="${IMG}${m.poster_path}" alt="${escapeHtml(m.title)} poster" />`
+    : `<div class="no-poster">${escapeHtml(m.title)}</div>`;
+  const cert = m.certification
+    ? `<span class="cert">${escapeHtml(m.certification)}</span>` : "";
+  const seenBadge = isSeen ? `<span class="seen-badge" title="You've seen this">✓</span>` : "";
+  const netflixBadge = m.netflixOnly
+    ? `<span class="netflix-badge" title="Only on Netflix (${region})">NETFLIX</span>` : "";
+  const rankBadge = rank ? `<span class="rank" title="TMDB rating rank">#${rank}</span>` : "";
+  // IMDB page when we have the id; otherwise fall back to the TMDB page.
+  const link = m.imdb_id
+    ? `https://www.imdb.com/title/${m.imdb_id}/`
+    : `https://www.themoviedb.org/movie/${m.id}`;
+
+  // Awards + box-office stat row
+  const money = fmtMoney(m.revenue);
+  const stats = [];
+  if (m.oscarWins != null && (m.oscarWins > 0 || m.oscarNoms > 0)) {
+    const noms = m.oscarNoms != null ? m.oscarNoms : m.oscarWins;
+    stats.push(`<span class="stat oscar" title="Academy Awards — wins · nominations">🏆 ${m.oscarWins} <span class="dim">win${m.oscarWins === 1 ? "" : "s"}</span> · ${noms} <span class="dim">nom${noms === 1 ? "" : "s"}</span></span>`);
+  }
+  if (money) stats.push(`<span class="stat box" title="Worldwide gross (TMDB)">💰 ${money}</span>`);
+  const statsRow = stats.length ? `<div class="stats">${stats.join("")}</div>` : "";
+
+  div.innerHTML = `
+    <a class="poster-wrap" href="${link}" target="_blank" rel="noopener" title="Open on ${m.imdb_id ? "IMDB" : "TMDB"}">
+      ${rankBadge}
+      ${cert}
+      ${poster}
+      ${seenBadge}
+      ${netflixBadge}
+    </a>
+    <div class="card-body">
+      <div class="title">${escapeHtml(m.title)}</div>
+      <div class="meta"><span>${y}</span><span>·</span><span class="score">★ ${score}</span><span>·</span><span title="${votes} votes">${votes} votes</span>${lang}</div>
+      ${statsRow}
+      <div class="genres">${escapeHtml(genres) || "&nbsp;"}</div>
+      <button class="seen-toggle" data-id="${m.id}">${isSeen ? "✓ Seen — click to unmark" : "+ Mark as seen"}</button>
+    </div>`;
+  return div;
+}
+
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// ---------- Boot ----------
+async function init() {
+  try {
+    refreshOmdbBtn();
+    if (savedFilters.region) region = savedFilters.region;   // restore region before loading providers
+    elStatus.innerHTML = '<span class="spinner"></span> Loading top movies…';
+    await loadGenres();
+    allMovies = await loadTopMovies();
+    await augmentList();        // add top-3 box-office + Oscar record-holders to guarantee coverage
+    document.getElementById("countBadge").textContent = allMovies.length;
+    buildFilterOptions();
+    msGenre.setExcluded(savedFilters.genreExcluded);        // restore saved genre choices
+    msLanguage.setExcluded(savedFilters.languageExcluded);  // restore saved language choices
+    restoreYearSeen();                                      // restore year range + watched + sort
+    render();   // show movies right away (without certs yet)
+
+    elStatus.innerHTML = `Showing <span class="count">${allMovies.length}</span> of ${allMovies.length} movies · <span class="spinner"></span> loading ratings, box office &amp; IMDB links…`;
+    await loadDetails(allMovies, (done, total) => {
+      if (done % 25 === 0 || done === total) {
+        elStatus.innerHTML = `Showing <span class="count">${allMovies.length}</span> of ${allMovies.length} movies · <span class="spinner"></span> details ${done}/${total}`;
+      }
+    });
+    buildCertOptions();
+    msCert.setExcluded(savedFilters.certExcluded);   // restore saved age-rating choices
+    buildRegionOptions();                            // populate region dropdown from provider data
+    recomputeNetflix();                              // flag Netflix-only for the active region
+    applyOscarOverrides();                           // accurate counts for record-holders
+    render();
+
+    // Academy Award data (optional — needs an OMDb key)
+    if (getOmdbKey()) {
+      elStatus.innerHTML = `Showing <span class="count">${allMovies.length}</span> of ${allMovies.length} movies · <span class="spinner"></span> loading Academy Award data…`;
+      await loadOscars(allMovies, (done, total) => {
+        elStatus.innerHTML = `Showing <span class="count">${allMovies.length}</span> of ${allMovies.length} movies · <span class="spinner"></span> Oscars ${done}/${total}`;
+      });
+      applyOscarOverrides();
+      render();
+    }
+  } catch (e) {
+    if (String(e.message).includes("401")) {
+      showGate("Your saved key was rejected. Please re-enter it.");
+    } else {
+      elStatus.textContent = "Something went wrong loading movies: " + e.message;
+    }
+  }
+}
+
+if (getKey()) { init(); } else { showGate(); }
+</script>
+</body>
+</html>
