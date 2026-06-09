@@ -266,6 +266,48 @@
   }
   @keyframes spin { to { transform: rotate(360deg); } }
   .reset-key { font-size: .78rem; }
+
+  /* Mobile filter toggle button — hidden on desktop, shown via media query */
+  .filters-toggle { display: none; }
+
+  /* ---------- Mobile optimization ---------- */
+  @media (max-width: 600px) {
+    header { padding: 14px 14px; }
+    main { padding: 14px; }
+    h1 { font-size: 1.3rem; }
+    .sub { font-size: .8rem; }
+
+    /* Collapse the tall filter bar behind a button so it doesn't dominate
+       the small (sticky) viewport. JS toggles the .open class. */
+    .filters-toggle {
+      display: block;
+      width: 100%;
+      margin-top: 12px;
+      background: var(--panel-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+    .filters { display: none; gap: 10px; }
+    .filters.open { display: flex; }
+
+    /* Each control takes a full row and stretches edge-to-edge */
+    .field { flex: 1 1 100%; }
+    select, input[type="text"], input[type="password"], .ms-toggle {
+      width: 100%; min-width: 0;
+    }
+    .year-field, .range-slider { min-width: 0; }
+    .ms-panel { width: 100%; min-width: 0; }
+
+    /* Two-column poster wall instead of one giant column */
+    .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+
+    /* Finger-friendly year slider (thumbs were 16px) */
+    .range-slider, .range-slider input[type="range"] { height: 44px; }
+    .range-track, .range-fill { top: 20px; }
+    .range-slider input[type="range"]::-webkit-slider-thumb { width: 24px; height: 24px; }
+    .range-slider input[type="range"]::-moz-range-thumb { width: 24px; height: 24px; }
+  }
 </style>
 </head>
 <body>
@@ -281,6 +323,8 @@
       <button class="ghost reset-key" id="resetKey" title="Change API key">Change API key</button>
     </div>
   </div>
+
+  <button class="filters-toggle" id="filtersToggle" aria-expanded="false">☰ Show filters</button>
 
   <div class="filters">
     <div class="field">
@@ -892,6 +936,15 @@ document.getElementById("clearBtn").addEventListener("click", () => {
   fAwards.value = "all";
   fMinVotes.value = "0";
   applyFilters();
+});
+
+// Mobile: toggle the collapsible filter bar open/closed.
+const filtersToggle = document.getElementById("filtersToggle");
+const filtersEl = document.querySelector(".filters");
+filtersToggle.addEventListener("click", () => {
+  const open = filtersEl.classList.toggle("open");
+  filtersToggle.setAttribute("aria-expanded", open ? "true" : "false");
+  filtersToggle.textContent = open ? "☰ Hide filters" : "☰ Show filters";
 });
 
 // Build the region dropdown from every country present in the loaded provider data.
