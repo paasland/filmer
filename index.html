@@ -148,13 +148,19 @@
     display: flex; align-items: center; justify-content: center;
     font-weight: 800; font-size: .95rem; box-shadow: 0 2px 6px rgba(0,0,0,.5);
   }
-  .netflix-badge {
+  /* Streaming-availability badges (Netflix-only, Disney+, TV 2), stacked bottom-right */
+  .prov-badges {
     position: absolute; bottom: 8px; right: 8px;
-    background: #E50914; color: #fff;
-    font-weight: 800; font-size: .68rem; letter-spacing: .4px;
-    padding: 3px 7px; border-radius: 5px;
-    box-shadow: 0 2px 6px rgba(0,0,0,.5);
+    display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end;
+    max-width: calc(100% - 46px);
   }
+  .netflix-badge, .prov-badge {
+    color: #fff; font-weight: 800; font-size: .62rem; letter-spacing: .4px;
+    padding: 3px 6px; border-radius: 5px; box-shadow: 0 2px 6px rgba(0,0,0,.5);
+  }
+  .netflix-badge { background: #E50914; }
+  .prov-badge.disney { background: #113CCF; }
+  .prov-badge.tv2 { background: #E4002B; }
   .seen-toggle {
     background: var(--panel-2); color: var(--muted);
     border: 1px solid var(--border); border-radius: 6px;
@@ -393,6 +399,22 @@
         <option value="all">Show all</option>
         <option value="netflix">Netflix only</option>
         <option value="hide">Hide Netflix only</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fDisney">Disney+</label>
+      <select id="fDisney">
+        <option value="all">Show all</option>
+        <option value="on">On Disney+</option>
+        <option value="off">Not on Disney+</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="fTv2">TV 2</label>
+      <select id="fTv2">
+        <option value="all">Show all</option>
+        <option value="on">On TV 2</option>
+        <option value="off">Not on TV 2</option>
       </select>
     </div>
     <div class="field">
@@ -729,12 +751,16 @@ async function loadDetails(movies, onProgress) {
         movie.revenue = data.revenue || 0;
         movie.providersByRegion = (data["watch/providers"] && data["watch/providers"].results) || {};
         movie.netflixOnly = isNetflixOnly(movie.providersByRegion, region);
+        movie.onDisney = hasProvider(movie.providersByRegion, region, RE_DISNEY);
+        movie.onTv2 = hasProvider(movie.providersByRegion, region, RE_TV2);
       } catch {
         movie.certification = "";
         movie.imdb_id = "";
         movie.revenue = 0;
         movie.providersByRegion = {};
         movie.netflixOnly = false;
+        movie.onDisney = false;
+        movie.onTv2 = false;
       }
       done++;
       if (onProgress) onProgress(done, movies.length);
@@ -763,9 +789,26 @@ function isNetflixOnly(providersByRegion, rgn) {
   return flat.every(p => /netflix/i.test(p.provider_name));
 }
 
-// Recompute each movie's Netflix-only flag for the current region, then re-render.
+// True when the movie is available on a provider matching `re` in `rgn`,
+// via any consumption model (subscription, free, or ad-supported).
+function hasProvider(providersByRegion, rgn, re) {
+  const block = providersByRegion && providersByRegion[rgn];
+  if (!block) return false;
+  return ["flatrate", "free", "ads"].some(kind =>
+    (block[kind] || []).some(p => re.test(p.provider_name)));
+}
+
+// Provider name patterns as they appear in TMDB's Norwegian (NO) provider data.
+const RE_DISNEY = /disney/i;
+const RE_TV2 = /tv\s*2/i;   // "TV 2 Play" / "TV 2"
+
+// Recompute per-movie provider flags for the current region, then re-render.
 function recomputeNetflix() {
-  allMovies.forEach(m => { m.netflixOnly = isNetflixOnly(m.providersByRegion, region); });
+  allMovies.forEach(m => {
+    m.netflixOnly = isNetflixOnly(m.providersByRegion, region);
+    m.onDisney = hasProvider(m.providersByRegion, region, RE_DISNEY);
+    m.onTv2 = hasProvider(m.providersByRegion, region, RE_TV2);
+  });
 }
 
 // ---------- Filters & rendering ----------
@@ -909,6 +952,8 @@ function langName(code) {
 
 const fSeen = document.getElementById("fSeen");
 const fStreaming = document.getElementById("fStreaming");
+const fDisney = document.getElementById("fDisney");
+const fTv2 = document.getElementById("fTv2");
 const fRegion = document.getElementById("fRegion");
 const fSort = document.getElementById("fSort");
 const fAwards = document.getElementById("fAwards");
@@ -916,6 +961,8 @@ const fMinVotes = document.getElementById("fMinVotes");
 
 fSeen.addEventListener("change", applyFilters);
 fStreaming.addEventListener("change", applyFilters);
+fDisney.addEventListener("change", applyFilters);
+fTv2.addEventListener("change", applyFilters);
 fSort.addEventListener("change", applyFilters);
 fAwards.addEventListener("change", applyFilters);
 fMinVotes.addEventListener("change", applyFilters);
@@ -932,6 +979,8 @@ document.getElementById("clearBtn").addEventListener("click", () => {
   if (YEAR_LO !== undefined) { yearMin.value = YEAR_LO; yearMax.value = YEAR_HI; updateYearUI(); }
   fSeen.value = "all";
   fStreaming.value = "all";   // region is a setting, kept on clear
+  fDisney.value = "all";
+  fTv2.value = "all";
   fSort.value = "rating";
   fAwards.value = "all";
   fMinVotes.value = "0";
@@ -974,6 +1023,8 @@ function saveFilters() {
   if (YEAR_LO !== undefined) { savedFilters.yearFrom = yearMin.value; savedFilters.yearTo = yearMax.value; }
   savedFilters.seen = fSeen.value;
   savedFilters.streaming = fStreaming.value;
+  savedFilters.disney = fDisney.value;
+  savedFilters.tv2 = fTv2.value;
   savedFilters.region = region;
   savedFilters.sort = fSort.value;
   savedFilters.awards = fAwards.value;
@@ -993,6 +1044,8 @@ function restoreYearSeen() {
   const hasOpt = (sel, v) => [...sel.options].some(o => o.value === v);
   if (savedFilters.seen && hasOpt(fSeen, savedFilters.seen)) fSeen.value = savedFilters.seen;
   if (savedFilters.streaming && hasOpt(fStreaming, savedFilters.streaming)) fStreaming.value = savedFilters.streaming;
+  if (savedFilters.disney && hasOpt(fDisney, savedFilters.disney)) fDisney.value = savedFilters.disney;
+  if (savedFilters.tv2 && hasOpt(fTv2, savedFilters.tv2)) fTv2.value = savedFilters.tv2;
   if (savedFilters.sort && hasOpt(fSort, savedFilters.sort)) fSort.value = savedFilters.sort;
   if (savedFilters.awards && hasOpt(fAwards, savedFilters.awards)) fAwards.value = savedFilters.awards;
   if (savedFilters.minVotes && hasOpt(fMinVotes, savedFilters.minVotes)) fMinVotes.value = savedFilters.minVotes;
@@ -1086,6 +1139,12 @@ function render() {
     // Netflix-only
     if (fStreaming.value === "netflix" && !m.netflixOnly) return false;
     if (fStreaming.value === "hide" && m.netflixOnly) return false;
+    // Disney+ availability (current region)
+    if (fDisney.value === "on" && !m.onDisney) return false;
+    if (fDisney.value === "off" && m.onDisney) return false;
+    // TV 2 availability (current region)
+    if (fTv2.value === "on" && !m.onTv2) return false;
+    if (fTv2.value === "off" && m.onTv2) return false;
     // Awards / box office
     if (fAwards.value === "oscarWinners" && !(m.oscarWins > 0)) return false;
     if (fAwards.value === "oscarNominees" && !(m.oscarNoms > 0)) return false;
@@ -1143,8 +1202,12 @@ function card(m) {
   const cert = m.certification
     ? `<span class="cert">${escapeHtml(m.certification)}</span>` : "";
   const seenBadge = isSeen ? `<span class="seen-badge" title="You've seen this">✓</span>` : "";
-  const netflixBadge = m.netflixOnly
-    ? `<span class="netflix-badge" title="Only on Netflix (${region})">NETFLIX</span>` : "";
+  // Streaming-availability badges for the active region (Netflix-only, Disney+, TV 2).
+  const provList = [];
+  if (m.netflixOnly) provList.push(`<span class="netflix-badge" title="Only on Netflix (${region})">NETFLIX</span>`);
+  if (m.onDisney) provList.push(`<span class="prov-badge disney" title="Available on Disney+ (${region})">DISNEY+</span>`);
+  if (m.onTv2) provList.push(`<span class="prov-badge tv2" title="Available on TV 2 (${region})">TV 2</span>`);
+  const provBadges = provList.length ? `<div class="prov-badges">${provList.join("")}</div>` : "";
   const rankBadge = rank ? `<span class="rank" title="TMDB rating rank">#${rank}</span>` : "";
   // IMDB page when we have the id; otherwise fall back to the TMDB page.
   const link = m.imdb_id
@@ -1167,7 +1230,7 @@ function card(m) {
       ${cert}
       ${poster}
       ${seenBadge}
-      ${netflixBadge}
+      ${provBadges}
     </a>
     <div class="card-body">
       <div class="title">${escapeHtml(m.title)}</div>
