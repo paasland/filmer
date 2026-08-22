@@ -125,6 +125,8 @@
     font-weight: 700; font-size: .72rem;
     padding: 3px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.25);
   }
+  /* Non-US rating (fallback source, different scale) — subtle accent border */
+  .cert.alt { border-color: var(--accent-2); }
   .card-body { padding: 10px 12px 14px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
   .title { font-weight: 700; font-size: .95rem; line-height: 1.25; }
   .meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .8rem; }
@@ -136,6 +138,7 @@
   .stat { font-size: .74rem; padding: 2px 6px; border-radius: 5px; white-space: nowrap; }
   .stat.oscar { background: rgba(245,197,24,.12); color: var(--accent); border: 1px solid rgba(245,197,24,.3); }
   .stat.box { background: rgba(68,147,248,.12); color: var(--accent-2); border: 1px solid rgba(68,147,248,.3); }
+  .stat.box.alt { border-style: dashed; }   /* fallback source (domestic-only), not TMDB worldwide */
   .stat .dim { opacity: .7; font-weight: 400; }
 
   /* Seen / watched state */
@@ -322,7 +325,7 @@
   <div class="header-top">
     <div>
       <h1>Top <span class="badge" id="countBadge">300</span> Movies</h1>
-      <div class="sub">Highest-rated films + box-office &amp; Oscar record-holders · data from TMDB &amp; OMDb</div>
+      <div class="sub">Highest-rated films + box-office &amp; Oscar record-holders + full TV 2 (Norway) catalog · data from TMDB &amp; OMDb</div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
       <button class="ghost reset-key" id="omdbKeyBtn" title="Set OMDb key to load Academy Award data">🏆 Oscar data</button>
@@ -369,7 +372,7 @@
       </div>
     </div>
     <div class="field">
-      <label>Age rating (US)</label>
+      <label>Age rating</label>
       <div class="multiselect" id="msCert">
         <button type="button" class="ms-toggle"><span class="ms-summary">All ratings</span><span class="caret">▾</span></button>
         <div class="ms-panel">
@@ -490,9 +493,11 @@
     <p>
       TMDB has no Oscar data, so Academy Award wins &amp; nominations come from
       <a href="https://www.omdbapi.com/" target="_blank" rel="noopener">OMDb</a>.
-      Get a free key at
+      This key also fills in an age rating or box-office figure for films TMDB has none for
+      (OMDb's box office is US domestic gross, not worldwide — labeled "(US)" with a dashed
+      border when used). Get a free key at
       <a href="https://www.omdbapi.com/apikey.aspx" target="_blank" rel="noopener">omdbapi.com/apikey.aspx</a>
-      (the free tier allows 1,000 lookups/day; this app uses ~300). Stored only in your browser.
+      (the free tier allows 1,000 lookups/day). Stored only in your browser.
     </p>
     <p style="font-size:.82rem;">
       Note: Oscar <em>wins</em> are exact. Oscar <em>nominations</em> are exact only for films that
@@ -677,6 +682,16 @@ async function loadOscars(movies, onProgress) {
         if (d && d.Response !== "False") {
           const a = parseAwards(d.Awards);
           m.oscarWins = a.wins; m.oscarNoms = a.noms;
+          // Bonus fallback: OMDb sometimes has a US rating TMDB doesn't.
+          if (!m.certification && d.Rated && !/^(N\/A|Not Rated|Unrated)$/i.test(d.Rated)) {
+            m.certification = d.Rated; m.certCountry = "US";
+          }
+          // Bonus fallback: OMDb's BoxOffice (via Box Office Mojo) is US domestic gross
+          // only — not worldwide — but it's better than nothing when TMDB has no revenue.
+          if (!m.revenue && d.BoxOffice && d.BoxOffice !== "N/A") {
+            const domestic = parseInt(d.BoxOffice.replace(/[^0-9]/g, ""), 10);
+            if (domestic) { m.revenue = domestic; m.revenueSource = "omdb"; }
+          }
         }
       } catch { /* leave undefined */ }
       done++;
@@ -738,7 +753,7 @@ async function augmentList() {
   });
 }
 
-// Fetch per-movie details (US certification + IMDB id) with a concurrency-limited pool.
+// Fetch per-movie details (certification + IMDB id) with a concurrency-limited pool.
 async function loadDetails(movies, onProgress) {
   let i = 0, done = 0;
   async function worker() {
@@ -746,7 +761,9 @@ async function loadDetails(movies, onProgress) {
       const movie = movies[i++];
       try {
         const data = await apiFetch(`/movie/${movie.id}`, { append_to_response: "release_dates,watch/providers", language: "en-US" });
-        movie.certification = pickCert(data.release_dates && data.release_dates.results);
+        const c = pickCert(data.release_dates && data.release_dates.results);
+        movie.certification = c.cert;
+        movie.certCountry = c.country;
         movie.imdb_id = data.imdb_id || "";
         movie.revenue = data.revenue || 0;
         movie.providersByRegion = (data["watch/providers"] && data["watch/providers"].results) || {};
@@ -755,6 +772,7 @@ async function loadDetails(movies, onProgress) {
         movie.onTv2 = hasProvider(movie.providersByRegion, region, RE_TV2);
       } catch {
         movie.certification = "";
+        movie.certCountry = "";
         movie.imdb_id = "";
         movie.revenue = 0;
         movie.providersByRegion = {};
@@ -770,15 +788,33 @@ async function loadDetails(movies, onProgress) {
   await Promise.all(pool);
 }
 
+// Prefer Norway's own rating — this app's primary audience — then fall back to the
+// US (consistent, widely-recognized scale), then a handful of other major markets,
+// then whatever country TMDB happens to have a rating for, rather than showing none.
+const CERT_COUNTRY_PRIORITY = ["NO", "US", "GB", "DE", "FR", "AU", "CA", "NZ"];
 function pickCert(results) {
-  if (!results) return "";
-  const us = results.find(r => r.iso_3166_1 === "US");
+  if (!results) return { cert: "", country: "" };
   const fromCountry = c => {
     if (!c) return "";
     const rd = c.release_dates.find(d => d.certification && d.certification.trim());
     return rd ? rd.certification.trim() : "";
   };
-  return fromCountry(us);   // US only for a consistent rating scale
+  for (const cc of CERT_COUNTRY_PRIORITY) {
+    const cert = fromCountry(results.find(r => r.iso_3166_1 === cc));
+    if (cert) return { cert, country: cc };
+  }
+  for (const r of results) {   // last resort: any country with a non-empty rating
+    const cert = fromCountry(r);
+    if (cert) return { cert, country: r.iso_3166_1 };
+  }
+  return { cert: "", country: "" };
+}
+
+// Filter/option key for a movie's certification — tags non-US ratings with their
+// country so differing scales (e.g. Norway's "15" vs US "R") never collide.
+function certKey(m) {
+  if (!m.certification) return "__none__";
+  return (m.certCountry && m.certCountry !== "US") ? `${m.certification}|${m.certCountry}` : m.certification;
 }
 
 // True when the only subscription-streaming option in `rgn` is Netflix.
@@ -801,6 +837,46 @@ function hasProvider(providersByRegion, rgn, re) {
 // Provider name patterns as they appear in TMDB's Norwegian (NO) provider data.
 const RE_DISNEY = /disney/i;
 const RE_TV2 = /tv\s*2/i;   // "TV 2 Play" / "TV 2"
+const TV2_REGION = "NO";    // TV 2 catalog is always sourced from Norway, regardless of the filter region
+
+// Resolve the TMDB provider id(s) matching `re` for movies in region `rgn`.
+async function findProviderIds(rgn, re) {
+  try {
+    const data = await apiFetch("/watch/providers/movie", { watch_region: rgn, language: "en-US" });
+    return (data.results || []).filter(p => re.test(p.provider_name)).map(p => p.provider_id);
+  } catch { return []; }
+}
+
+// Pull in every movie TMDB lists as available on TV 2 (Norway), not just whichever
+// happen to already be in the top-rated/box-office/Oscar list.
+async function loadTv2Catalog() {
+  const ids = await findProviderIds(TV2_REGION, RE_TV2);
+  if (!ids.length) return;
+  const params = {
+    watch_region: TV2_REGION, with_watch_providers: ids.join("|"),
+    sort_by: "popularity.desc", language: "en-US",
+  };
+  const first = await apiFetch("/discover/movie", { ...params, page: 1 });
+  const totalPages = Math.min(first.total_pages || 1, 500);
+  const results = [...(first.results || [])];
+  if (totalPages > 1) {
+    const reqs = [];
+    for (let p = 2; p <= totalPages; p++) reqs.push(apiFetch("/discover/movie", { ...params, page: p }));
+    (await Promise.all(reqs)).forEach(pg => results.push(...(pg.results || [])));
+  }
+  const have = new Set(allMovies.map(m => m.id));
+  results.forEach(d => {
+    if (have.has(d.id)) return;
+    have.add(d.id);
+    allMovies.push({
+      id: d.id, title: d.title, poster_path: d.poster_path,
+      vote_average: d.vote_average, vote_count: d.vote_count,
+      release_date: d.release_date, original_language: d.original_language,
+      genre_ids: d.genre_ids || [],
+      augmented: true,   // not part of the rating-ranked top 300
+    });
+  });
+}
 
 // Recompute per-movie provider flags for the current region, then re-render.
 function recomputeNetflix() {
@@ -1084,23 +1160,56 @@ function buildFilterOptions() {
   setupYearRange(lo, hi);
 }
 
+// US ratings map straight to their MPAA minimum age; NR (not rated) sorts last.
+const US_CERT_AGE = { G: 0, PG: 0, "PG-13": 13, R: 17, "NC-17": 17, NR: 1000 };
+
+// Approximate minimum viewing age for a certification, so ratings from different
+// countries' scales (letters, numbers, mixed) can be sorted on one common axis.
+function certApproxAge(cert, country) {
+  if (country === "US" || !country) {
+    if (cert in US_CERT_AGE) return US_CERT_AGE[cert];
+  }
+  const c = cert.trim();
+  if (/^u$/i.test(c) || /^g$/i.test(c) || /tous publics?/i.test(c) || /^alle$/i.test(c)) return 0;
+  if (/^pg$/i.test(c)) return 0;      // advisory only in most non-US scales, no legal minimum
+  if (/^m$/i.test(c)) return 15;      // AU/NZ "Mature" — advisory, roughly R-equivalent content
+  const digits = c.match(/(\d+)/);    // most non-US scales embed the age directly ("15", "12A", "MA15+")
+  if (digits) return parseInt(digits[1], 10);
+  return 1000;                        // unrecognized scale — sort after all known ages
+}
+
 function buildCertOptions() {
-  const certs = [...new Set(allMovies.map(m => m.certification).filter(Boolean))];
-  // Sort by a sensible order, unknown ones appended alphabetically
-  const order = ["G", "PG", "PG-13", "R", "NC-17", "NR"];
-  certs.sort((a, b) => {
-    const ia = order.indexOf(a), ib = order.indexOf(b);
-    if (ia !== -1 && ib !== -1) return ia - ib;
-    if (ia !== -1) return -1;
-    if (ib !== -1) return 1;
-    return a.localeCompare(b);
+  // Dedupe by certKey (country-tagged for non-US), keeping one {cert, country} per key.
+  const byKey = new Map();
+  allMovies.forEach(m => {
+    if (m.certification && !byKey.has(certKey(m))) {
+      byKey.set(certKey(m), { cert: m.certification, country: m.certCountry || "US" });
+    }
   });
-  const certOpts = certs.map(c => ({ value: c, text: c }));
+  // Sort by equivalent minimum age (youngest to oldest), regardless of source country.
+  const entries = [...byKey.entries()].sort(([, a], [, b]) => {
+    const ageA = certApproxAge(a.cert, a.country), ageB = certApproxAge(b.cert, b.country);
+    if (ageA !== ageB) return ageA - ageB;
+    if (a.country !== b.country) return a.country.localeCompare(b.country);
+    return a.cert.localeCompare(b.cert, undefined, { numeric: true });
+  });
+  const certOpts = entries.map(([key, v]) => ({
+    value: key,
+    text: v.country === "US" ? v.cert : `${v.cert} (${v.country})`,
+  }));
   // Add an explicit "Unrated/Unknown" bucket if any movie lacks a cert
   if (allMovies.some(m => !m.certification)) {
     certOpts.push({ value: "__none__", text: "No rating" });
   }
   msCert.setOptions(certOpts);
+}
+
+// Rebuild cert options after data that arrives later (OMDb's Rated fallback) may have
+// filled in new certifications, without resetting the user's current inclusion choices.
+function refreshCertOptions() {
+  const currentlyExcluded = msCert.options.filter(o => !msCert.has(o.value)).map(o => o.value);
+  buildCertOptions();
+  msCert.setExcluded(currentlyExcluded);
 }
 
 function render() {
@@ -1129,8 +1238,7 @@ function render() {
     }
     // Age rating: show only if the movie's cert (or "No rating") is checked.
     if (msCert.options.length) {
-      const key = m.certification || "__none__";
-      if (!msCert.has(key)) return false;
+      if (!msCert.has(certKey(m))) return false;
     }
     // Watched status
     const isSeen = seen.has(m.id);
@@ -1199,8 +1307,9 @@ function card(m) {
   const poster = m.poster_path
     ? `<img loading="lazy" src="${IMG}${m.poster_path}" alt="${escapeHtml(m.title)} poster" />`
     : `<div class="no-poster">${escapeHtml(m.title)}</div>`;
+  const certIsUS = !m.certCountry || m.certCountry === "US";
   const cert = m.certification
-    ? `<span class="cert">${escapeHtml(m.certification)}</span>` : "";
+    ? `<span class="cert${certIsUS ? "" : " alt"}" title="Age rating (${m.certCountry})">${escapeHtml(m.certification)}</span>` : "";
   const seenBadge = isSeen ? `<span class="seen-badge" title="You've seen this">✓</span>` : "";
   // Streaming-availability badges for the active region (Netflix-only, Disney+, TV 2).
   const provList = [];
@@ -1221,7 +1330,11 @@ function card(m) {
     const noms = m.oscarNoms != null ? m.oscarNoms : m.oscarWins;
     stats.push(`<span class="stat oscar" title="Academy Awards — wins · nominations">🏆 ${m.oscarWins} <span class="dim">win${m.oscarWins === 1 ? "" : "s"}</span> · ${noms} <span class="dim">nom${noms === 1 ? "" : "s"}</span></span>`);
   }
-  if (money) stats.push(`<span class="stat box" title="Worldwide gross (TMDB)">💰 ${money}</span>`);
+  if (money) {
+    const domestic = m.revenueSource === "omdb";
+    const title = domestic ? "US domestic gross (OMDb/Box Office Mojo) — worldwide figure unavailable" : "Worldwide gross (TMDB)";
+    stats.push(`<span class="stat box${domestic ? " alt" : ""}" title="${title}">💰 ${money}${domestic ? ` <span class="dim">(US)</span>` : ""}</span>`);
+  }
   const statsRow = stats.length ? `<div class="stats">${stats.join("")}</div>` : "";
 
   div.innerHTML = `
@@ -1256,6 +1369,7 @@ async function init() {
     await loadGenres();
     allMovies = await loadTopMovies();
     await augmentList();        // add top-3 box-office + Oscar record-holders to guarantee coverage
+    await loadTv2Catalog();     // add every movie TMDB lists as available on TV 2 (Norway)
     document.getElementById("countBadge").textContent = allMovies.length;
     buildFilterOptions();
     msGenre.setExcluded(savedFilters.genreExcluded);        // restore saved genre choices
@@ -1283,6 +1397,7 @@ async function init() {
         elStatus.innerHTML = `Showing <span class="count">${allMovies.length}</span> of ${allMovies.length} movies · <span class="spinner"></span> Oscars ${done}/${total}`;
       });
       applyOscarOverrides();
+      refreshCertOptions();   // OMDb's Rated fallback may have filled in new certifications
       render();
     }
   } catch (e) {
