@@ -58,7 +58,7 @@
   }
   .field { display: flex; flex-direction: column; gap: 4px; }
   .field label { font-size: .72rem; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
-  select, input[type="text"], input[type="password"] {
+  select, input[type="text"], input[type="password"], textarea {
     background: var(--panel-2);
     color: var(--text);
     border: 1px solid var(--border);
@@ -67,6 +67,12 @@
     font-size: .9rem;
     min-width: 130px;
     outline: none;
+  }
+  textarea {
+    width: 100%;
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: .8rem;
+    resize: vertical;
   }
   select:focus, input:focus { border-color: var(--accent-2); }
   button {
@@ -325,9 +331,11 @@
   <div class="header-top">
     <div>
       <h1>Top <span class="badge" id="countBadge">300</span> Movies</h1>
-      <div class="sub">Highest-rated films + box-office &amp; Oscar record-holders + full TV 2 (Norway) catalog · data from TMDB &amp; OMDb</div>
+      <div class="sub">Highest-rated films + box-office &amp; Oscar record-holders + full Disney+ &amp; TV 2 (Norway) catalogs · data from TMDB &amp; OMDb</div>
     </div>
     <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button class="ghost reset-key" id="profileBtn" title="Switch profile">🙋 Profile</button>
+      <button class="ghost reset-key" id="firebaseBtn" title="Set up cross-device sync of 'seen' status">🔥 Cloud sync</button>
       <button class="ghost reset-key" id="omdbKeyBtn" title="Set OMDb key to load Academy Award data">🏆 Oscar data</button>
       <button class="ghost reset-key" id="resetKey" title="Change API key">Change API key</button>
     </div>
@@ -516,6 +524,55 @@
   </div>
 </div>
 
+<!-- Profile gate — name only, no password. Determines which "seen" list is used/synced. -->
+<div class="gate-overlay" id="profileGate" style="display:none;">
+  <div class="gate">
+    <h2>Hva heter du?</h2>
+    <p>
+      Navnet ditt brukes som profil for hvilke filmer du har markert som "sett".
+      Bruk samme navn på alle enhetene dine for å holde listen synkronisert. Ingen
+      passord — bare et navn.
+    </p>
+    <div class="row">
+      <input type="text" id="profileInput" placeholder="F.eks. Per" maxlength="40" />
+      <button id="saveProfile">Fortsett</button>
+    </div>
+    <div class="err" id="profileErr"></div>
+  </div>
+</div>
+
+<!-- Firebase config gate (optional, for cross-device sync of "seen" status) -->
+<div class="gate-overlay" id="firebaseGate" style="display:none;">
+  <div class="gate">
+    <h2>Cloud sync (Firebase)</h2>
+    <p>
+      Paste your Firebase project's web config to sync each profile's "seen" list across
+      devices. Get it from the
+      <a href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase Console</a>
+      → Project settings → General → Your apps → Add app (Web) → SDK setup and configuration.
+      You can paste the whole <code>const firebaseConfig = {...}</code> snippet as-is.
+    </p>
+    <p style="font-size:.82rem;">
+      Requires Anonymous sign-in enabled (Build → Authentication → Sign-in method) and a
+      Firestore database with a rule allowing signed-in access, e.g.
+      <code>allow read, write: if request.auth != null;</code> on <code>/profiles/{id}</code>.
+      Stored only in this browser — not sent anywhere except your own Firebase project.
+    </p>
+    <textarea id="firebaseInput" rows="8" placeholder='const firebaseConfig = {&#10;  apiKey: "...",&#10;  authDomain: "...",&#10;  projectId: "...",&#10;  ...&#10;};'></textarea>
+    <div class="row" style="margin-top:10px;">
+      <button id="saveFirebase">Save &amp; connect</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button class="ghost" id="firebaseClear">Disconnect / remove</button>
+      <button class="ghost" id="firebaseClose">Close</button>
+    </div>
+    <div class="err" id="firebaseErr"></div>
+  </div>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script>
 const TMDB = "https://api.themoviedb.org/3";
 const IMG = "https://image.tmdb.org/t/p/w342";
@@ -541,9 +598,11 @@ const OSCAR_OVERRIDES = {
 
 const LS_KEY = "tmdb_key";
 const LS_TYPE = "tmdb_key_type";
-const LS_SEEN = "seen_movies";
+const LS_SEEN_PREFIX = "seen_movies__";   // per-profile: seen_movies__<profile name>
 const LS_FILTERS = "filter_prefs";
 const LS_OMDB = "omdb_key";
+const LS_PROFILE = "profile_name";
+const LS_FIREBASE_CFG = "firebase_config";
 
 // Saved filter preferences (restored on load, updated on every user change).
 let savedFilters = JSON.parse(localStorage.getItem(LS_FILTERS) || "{}");
@@ -551,13 +610,210 @@ let savedFilters = JSON.parse(localStorage.getItem(LS_FILTERS) || "{}");
 let allMovies = [];
 let genreMap = {};   // id -> name
 
-// Set of movie ids the user has marked as seen (persisted in localStorage).
-let seen = new Set(JSON.parse(localStorage.getItem(LS_SEEN) || "[]"));
-function saveSeen() { localStorage.setItem(LS_SEEN, JSON.stringify([...seen])); }
+// ---------- Firebase (optional — syncs "seen" status across devices per profile) ----------
+// Config is supplied at runtime via the "🔥 Cloud sync" settings gate (pasted Firebase Web
+// SDK config), not hardcoded here — so a deployed build needs no code changes/redeploy to
+// turn sync on. It's not secret either way: access is controlled by Firestore Security
+// Rules, not by hiding this object. With no config saved, everything runs local-only.
+function getFirebaseConfig() {
+  try {
+    const raw = localStorage.getItem(LS_FIREBASE_CFG);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+let firestoreDb = null;
+let firestoreUnsub = null;   // active onSnapshot listener for the current profile
+
+// Lazily initialize Firebase + anonymous auth. Safe to call repeatedly; falls back to
+// local-only mode (returns null) if not configured or if init/auth fails for any reason.
+async function initFirebase() {
+  const cfg = getFirebaseConfig();
+  if (!cfg) return null;
+  if (firestoreDb) return firestoreDb;
+  try {
+    if (!firebase.apps.length) firebase.initializeApp(cfg);
+    await firebase.auth().signInAnonymously();
+    firestoreDb = firebase.firestore();
+  } catch (e) {
+    console.warn("Firebase unavailable, staying in local-only mode:", e.message);
+    firestoreDb = null;
+  }
+  return firestoreDb;
+}
+
+// Tear down any active default-app Firebase connection so a newly-saved/removed config
+// can take over cleanly, without needing a page reload.
+async function teardownFirebase() {
+  if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
+  firestoreDb = null;
+  if (firebase.apps && firebase.apps.length) {
+    try { await firebase.app().delete(); } catch { /* ignore */ }
+  }
+}
+
+// Lenient parser: accepts either strict JSON or the raw JS snippet Firebase Console
+// shows ("const firebaseConfig = { apiKey: "...", ... };") without requiring the user
+// to hand-edit it into valid JSON first.
+function parseFirebaseConfigText(text) {
+  let body = text.trim();
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end === -1 || end <= start) throw new Error("no { ... } object found");
+  body = body.slice(start, end + 1)
+    .replace(/'/g, '"')                                          // single → double quotes
+    .replace(/([{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/g, '$1"$2":')  // quote bare keys
+    .replace(/,(\s*})/g, "$1");                                   // strip trailing commas
+  const cfg = JSON.parse(body);
+  if (!cfg.apiKey || !cfg.projectId) throw new Error("missing apiKey/projectId");
+  return cfg;
+}
+
+// Verify a config actually works before committing to it, using a throwaway named app
+// instance so it can't clash with (or tear down) any already-connected default app.
+async function verifyFirebaseConfig(cfg) {
+  const app = firebase.initializeApp(cfg, "verify-" + Date.now());
+  try {
+    await app.auth().signInAnonymously();
+  } finally {
+    await app.delete().catch(() => {});
+  }
+}
+
+// ---------- Profile handling (name only, no password) ----------
+function getProfile() { return localStorage.getItem(LS_PROFILE) || ""; }
+function seenKeyFor(p) { return LS_SEEN_PREFIX + p; }
+
+let profile = "";      // current profile name
+let seen = new Set();  // movie ids marked as seen, for the current profile
+
+function loadLocalSeen(p) { return new Set(JSON.parse(localStorage.getItem(seenKeyFor(p)) || "[]")); }
+function saveLocalSeen() { localStorage.setItem(seenKeyFor(profile), JSON.stringify([...seen])); }
+// "/" would otherwise be read as a Firestore path separator inside a doc id.
+function profileDocId(p) { return p.replace(/\//g, "_"); }
+
+// (Re)subscribe to the current profile's Firestore doc so "seen" state stays in sync
+// across every device using the same profile name. Local storage is used immediately
+// (instant + offline fallback) and kept as a mirror of whatever Firestore last sent.
+async function subscribeSeen() {
+  if (firestoreUnsub) { firestoreUnsub(); firestoreUnsub = null; }
+  seen = loadLocalSeen(profile);
+  const db = await initFirebase();
+  if (!db) return;
+  firestoreUnsub = db.collection("profiles").doc(profileDocId(profile)).onSnapshot(snap => {
+    seen = new Set((snap.data() && snap.data().seenIds) || []);
+    saveLocalSeen();
+    render();
+  }, err => console.warn("Firestore sync error, staying local-only:", err.message));
+}
+
 function toggleSeen(id) {
-  if (seen.has(id)) seen.delete(id); else seen.add(id);
-  saveSeen();
+  const nowSeen = !seen.has(id);
+  if (nowSeen) seen.add(id); else seen.delete(id);
+  saveLocalSeen();
   render();
+  if (firestoreDb) {
+    const fv = firebase.firestore.FieldValue;
+    firestoreDb.collection("profiles").doc(profileDocId(profile))
+      .set({ seenIds: fv[nowSeen ? "arrayUnion" : "arrayRemove"](id) }, { merge: true })
+      .catch(e => console.warn("Failed to sync seen status:", e.message));
+  }
+}
+
+// ---------- Profile gate UI ----------
+const profileGate = document.getElementById("profileGate");
+const profileInput = document.getElementById("profileInput");
+const profileErr = document.getElementById("profileErr");
+const profileBtn = document.getElementById("profileBtn");
+
+function showProfileGate(msg) {
+  profileGate.style.display = "flex";
+  profileErr.textContent = msg || "";
+  profileInput.value = getProfile();
+  profileInput.focus();
+}
+function hideProfileGate() { profileGate.style.display = "none"; }
+function refreshProfileBtn() { profileBtn.textContent = profile ? `🙋 ${profile}` : "🙋 Profile"; }
+
+document.getElementById("saveProfile").addEventListener("click", saveProfile);
+profileInput.addEventListener("keydown", e => { if (e.key === "Enter") saveProfile(); });
+profileBtn.addEventListener("click", () => showProfileGate(""));
+
+async function saveProfile() {
+  const name = profileInput.value.trim();
+  if (!name) { profileErr.textContent = "Skriv inn et navn."; return; }
+  localStorage.setItem(LS_PROFILE, name);
+  hideProfileGate();
+  profile = name;
+  afterProfileReady();
+}
+
+// Runs after a profile is known (first visit or switching profiles): connects this
+// profile's "seen" list, then either re-renders (data already loaded) or continues
+// the normal boot sequence (TMDB key gate / initial load).
+async function afterProfileReady() {
+  refreshProfileBtn();
+  await subscribeSeen();
+  if (allMovies.length) { render(); return; }
+  if (getKey()) init(); else showGate();
+}
+
+function boot() {
+  if (!getProfile()) { showProfileGate(); return; }
+  profile = getProfile();
+  afterProfileReady();
+}
+
+// ---------- Firebase config gate UI (optional cloud sync) ----------
+const firebaseGate = document.getElementById("firebaseGate");
+const firebaseInput = document.getElementById("firebaseInput");
+const firebaseErr = document.getElementById("firebaseErr");
+const firebaseBtn = document.getElementById("firebaseBtn");
+
+function refreshFirebaseBtn() { firebaseBtn.textContent = getFirebaseConfig() ? "🔥 Cloud sync ✓" : "🔥 Cloud sync"; }
+refreshFirebaseBtn();
+
+firebaseBtn.addEventListener("click", () => {
+  firebaseErr.textContent = "";
+  const cfg = getFirebaseConfig();
+  firebaseInput.value = cfg ? JSON.stringify(cfg, null, 2) : "";
+  firebaseGate.style.display = "flex";
+  firebaseInput.focus();
+});
+document.getElementById("firebaseClose").addEventListener("click", () => { firebaseGate.style.display = "none"; });
+document.getElementById("saveFirebase").addEventListener("click", saveFirebaseConfig);
+document.getElementById("firebaseClear").addEventListener("click", clearFirebaseConfig);
+
+async function saveFirebaseConfig() {
+  const text = firebaseInput.value.trim();
+  if (!text) { firebaseErr.textContent = "Paste your Firebase config first."; return; }
+  firebaseErr.innerHTML = '<span class="spinner"></span> Verifying…';
+  let cfg;
+  try {
+    cfg = parseFirebaseConfigText(text);
+  } catch (e) {
+    firebaseErr.textContent = "Couldn't parse that config (" + e.message + ").";
+    return;
+  }
+  try {
+    await verifyFirebaseConfig(cfg);
+  } catch (e) {
+    firebaseErr.textContent = "Firebase rejected that config (" + e.message + "). Check the values and that Anonymous sign-in is enabled.";
+    return;
+  }
+  localStorage.setItem(LS_FIREBASE_CFG, JSON.stringify(cfg));
+  await teardownFirebase();   // drop any previous connection so the new config takes over cleanly
+  firebaseGate.style.display = "none";
+  refreshFirebaseBtn();
+  if (profile) { await subscribeSeen(); render(); }
+}
+
+async function clearFirebaseConfig() {
+  localStorage.removeItem(LS_FIREBASE_CFG);
+  await teardownFirebase();
+  refreshFirebaseBtn();
+  firebaseGate.style.display = "none";
+  if (profile) { await subscribeSeen(); render(); }
 }
 
 // ---------- API key handling ----------
@@ -837,7 +1093,8 @@ function hasProvider(providersByRegion, rgn, re) {
 // Provider name patterns as they appear in TMDB's Norwegian (NO) provider data.
 const RE_DISNEY = /disney/i;
 const RE_TV2 = /tv\s*2/i;   // "TV 2 Play" / "TV 2"
-const TV2_REGION = "NO";    // TV 2 catalog is always sourced from Norway, regardless of the filter region
+const TV2_REGION = "NO";      // TV 2 catalog is always sourced from Norway, regardless of the filter region
+const DISNEY_REGION = "NO";   // Disney+ catalog is always sourced from Norway, regardless of the filter region
 
 // Resolve the TMDB provider id(s) matching `re` for movies in region `rgn`.
 async function findProviderIds(rgn, re) {
@@ -847,13 +1104,13 @@ async function findProviderIds(rgn, re) {
   } catch { return []; }
 }
 
-// Pull in every movie TMDB lists as available on TV 2 (Norway), not just whichever
-// happen to already be in the top-rated/box-office/Oscar list.
-async function loadTv2Catalog() {
-  const ids = await findProviderIds(TV2_REGION, RE_TV2);
+// Pull in every movie TMDB lists as available on a given provider/region, not just
+// whichever happen to already be in the top-rated/box-office/Oscar list.
+async function loadProviderCatalog(rgn, re) {
+  const ids = await findProviderIds(rgn, re);
   if (!ids.length) return;
   const params = {
-    watch_region: TV2_REGION, with_watch_providers: ids.join("|"),
+    watch_region: rgn, with_watch_providers: ids.join("|"),
     sort_by: "popularity.desc", language: "en-US",
   };
   const first = await apiFetch("/discover/movie", { ...params, page: 1 });
@@ -877,6 +1134,9 @@ async function loadTv2Catalog() {
     });
   });
 }
+
+const loadTv2Catalog = () => loadProviderCatalog(TV2_REGION, RE_TV2);
+const loadDisneyCatalog = () => loadProviderCatalog(DISNEY_REGION, RE_DISNEY);
 
 // Recompute per-movie provider flags for the current region, then re-render.
 function recomputeNetflix() {
@@ -943,6 +1203,7 @@ class MultiSelect {
     this.summary = this.root.querySelector(".ms-summary");
     this.options = [];          // [{value, text}]
     this.checked = new Set();   // set of String(value)
+    this.visible = null;        // null = all options visible; else Set of currently-relevant String(value)
 
     this.toggle.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -957,6 +1218,7 @@ class MultiSelect {
   setOptions(opts) {
     this.options = opts;
     this.checked = new Set(opts.map(o => String(o.value)));
+    this.visible = null;
     this.list.innerHTML = "";
     opts.forEach(o => {
       const row = document.createElement("label");
@@ -974,11 +1236,27 @@ class MultiSelect {
     this.updateSummary();
   }
 
+  // Only affects currently-visible options (see setVisible) — hidden ones keep their state.
   setAll(on) {
-    this.list.querySelectorAll("input").forEach(i => { i.checked = on; });
-    this.checked = on ? new Set(this.options.map(o => String(o.value))) : new Set();
+    this.list.querySelectorAll(".ms-item").forEach((row, idx) => {
+      const val = String(this.options[idx].value);
+      if (this.visible && !this.visible.has(val)) return;
+      row.querySelector("input").checked = on;
+      if (on) this.checked.add(val); else this.checked.delete(val);
+    });
     this.updateSummary();
     this.onChange();
+  }
+
+  // Restrict the dropdown listing to only the given values (e.g. ratings actually
+  // present among currently-filtered movies), without touching checked state.
+  setVisible(values) {
+    this.visible = new Set([...values].map(String));
+    this.list.querySelectorAll(".ms-item").forEach((row, idx) => {
+      const val = String(this.options[idx].value);
+      row.style.display = this.visible.has(val) ? "" : "none";
+    });
+    this.updateSummary();
   }
 
   // Restore saved state by unchecking the given values. Does NOT fire onChange.
@@ -994,13 +1272,14 @@ class MultiSelect {
   }
 
   updateSummary() {
-    const total = this.options.length, sel = this.checked.size;
+    const opts = this.visible ? this.options.filter(o => this.visible.has(String(o.value))) : this.options;
+    const total = opts.length, sel = opts.filter(o => this.checked.has(String(o.value))).length;
     let txt;
     if (total === 0) txt = "—";
     else if (sel === total) txt = "All " + this.label;
     else if (sel === 0) txt = "None selected";
     else if (total - sel <= 2) {
-      const excluded = this.options.filter(o => !this.checked.has(String(o.value))).map(o => o.text);
+      const excluded = opts.filter(o => !this.checked.has(String(o.value))).map(o => o.text);
       txt = "All except " + excluded.join(", ");
     } else txt = sel + " of " + total + " selected";
     this.summary.textContent = txt;
@@ -1219,7 +1498,9 @@ function render() {
   const yearNarrowed = yFrom !== null && !(yFrom === YEAR_LO && yTo === YEAR_HI);
   const minVotes = parseInt(fMinVotes.value, 10) || 0;
 
-  const filtered = allMovies.filter((m) => {
+  // All filter conditions except age rating — used both to build the final list and to
+  // work out which ratings are actually present among the currently-filtered movies.
+  function passesExceptCert(m) {
     // Minimum TMDB vote count
     if (minVotes && (m.vote_count || 0) < minVotes) return false;
     // Genre: inclusion — show a movie if at least one of its genres is checked.
@@ -1235,10 +1516,6 @@ function render() {
     if (yearNarrowed) {
       const y = year(m);
       if (y === null || y < yFrom || y > yTo) return false;
-    }
-    // Age rating: show only if the movie's cert (or "No rating") is checked.
-    if (msCert.options.length) {
-      if (!msCert.has(certKey(m))) return false;
     }
     // Watched status
     const isSeen = seen.has(m.id);
@@ -1258,7 +1535,13 @@ function render() {
     if (fAwards.value === "oscarNominees" && !(m.oscarNoms > 0)) return false;
     if (fAwards.value === "billion" && !(m.revenue >= 1e9)) return false;
     return true;
-  });
+  }
+
+  const preCert = allMovies.filter(passesExceptCert);
+  // Age-rating dropdown only lists ratings actually represented among the movies
+  // that match every other active filter, so it never offers a rating with 0 results.
+  if (msCert.options.length) msCert.setVisible(new Set(preCert.map(certKey)));
+  const filtered = msCert.options.length ? preCert.filter(m => msCert.has(certKey(m))) : preCert;
 
   sortMovies(filtered);
 
@@ -1370,6 +1653,7 @@ async function init() {
     allMovies = await loadTopMovies();
     await augmentList();        // add top-3 box-office + Oscar record-holders to guarantee coverage
     await loadTv2Catalog();     // add every movie TMDB lists as available on TV 2 (Norway)
+    await loadDisneyCatalog();  // add every movie TMDB lists as available on Disney+ (Norway)
     document.getElementById("countBadge").textContent = allMovies.length;
     buildFilterOptions();
     msGenre.setExcluded(savedFilters.genreExcluded);        // restore saved genre choices
@@ -1409,7 +1693,7 @@ async function init() {
   }
 }
 
-if (getKey()) { init(); } else { showGate(); }
+boot();
 </script>
 </body>
 </html>
